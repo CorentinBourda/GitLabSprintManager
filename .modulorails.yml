@@ -1,0 +1,25 @@
+---
+health_check:
+  version: 1
+entrypoint:
+  version: 2
+dockerfile:
+  version: 2
+compose:
+  version: 2
+config:
+  version: 2
+devcontainer:
+  version: 1
+gitlabci:
+  version: 2
+rubocop:
+  version: 1
+githooks:
+  version: 2
+bundleraudit:
+  version: 1
+claude_code:
+  version: 1
+moduloproject:
+  version: 2

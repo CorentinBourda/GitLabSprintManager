@@ -1,0 +1,13 @@
+development: &default
+  adapter: postgresql
+  url: <%= ENV.fetch('DATABASE_URL', 'postgresql://postgres:postgres@database/gitlabsprintmanager') %>
+
+test:
+  <<: *default
+  url: <%= ENV.fetch('DATABASE_TEST_URL', 'postgresql://postgres:postgres@database/gitlabsprintmanager-test') %>
+
+staging:
+  <<: *default
+
+production:
+  <<: *default

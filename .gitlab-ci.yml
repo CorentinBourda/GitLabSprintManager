@@ -1,0 +1,54 @@
+include:
+  - project: 'modulosource/modulotech/devops/gitlab-ci-templates'
+    file:
+      - '/templates/helm.gitlab-ci.yml'
+      - '/templates/integration.gitlab-ci.yml'
+      - '/templates/docker-buildx.gitlab-ci.yml'
+
+variables:
+  IMAGE_NAME: gitlabsprintmanager
+
+stages:
+  - test
+  - build
+  - deploy
+
+build_integration_image:
+  extends: .build_integration_image
+  variables:
+    DOCKERFILE: .devcontainer/Dockerfile
+
+test:
+  extends: .test
+  services:
+    - postgres:16-alpine
+    - redis:7-alpine
+  variables:
+    RAILS_ENV: test
+    POSTGRES_DB: gitlabsprintmanager-test
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    DATABASE_TEST_URL: 'postgresql://postgres:postgres@postgres/gitlabsprintmanager-test'
+  script:
+    - bin/test
+
+docker_build:
+  extends: .docker_buildx_push
+  variables:
+    DOCKERFILE: Dockerfile
+  only:
+    - merge_requests
+    - staging
+    - master
+
+
+
+
+rubocop:
+  extends: .lint
+
+# Scan Gemfile.lock for Common Vulnerabilities and Exposures
+# https://en.wikipedia.org/wiki/Common_Vulnerabilities_and_Exposures
+# https://www.cve.org/
+bundleraudit:
+  extends: .bundleraudit
