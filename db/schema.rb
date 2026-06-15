@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_06_15_101004) do
+ActiveRecord::Schema[7.1].define(version: 2026_06_15_101005) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -27,6 +27,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_15_101004) do
     t.text "notes"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "web_url"
     t.index ["project_id", "issue_iid"], name: "index_calendar_events_on_project_id_and_issue_iid"
     t.index ["starts_at"], name: "index_calendar_events_on_starts_at"
   end

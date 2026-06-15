@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
-import { CalendarRange, Plus, Layers, Info, Palette } from 'lucide-vue-next'
+import { CalendarRange, Plus, Layers, Info, Palette, ExternalLink } from 'lucide-vue-next'
 import { useSprintStore } from '../stores/sprint'
 import { statusMeta, tint, DAY_START_HOUR, DAY_END_HOUR, HOUR_HEIGHT, EVENT_KINDS } from '../lib/constants'
 import TicketCard from './TicketCard.vue'
@@ -121,6 +121,13 @@ function issueFor(e) {
   return store.issues.find((i) => i.iid === e.issue_iid)
 }
 
+// GitLab URL of the ticket behind a ticket event. Prefer the URL stored on the
+// event (works for any project), falling back to the currently-loaded issue.
+function issueUrl(e) {
+  if (e.kind !== 'ticket') return null
+  return e.web_url || issueFor(e)?.web_url || null
+}
+
 function eventLabel(e) {
   if (e.kind === 'ticket') {
     const issue = issueFor(e)
@@ -200,18 +207,21 @@ async function onDropHour(day, e) {
     const estimateH = issue?.time_stats?.time_estimate
       ? Math.max(0.5, issue.time_stats.time_estimate / 3600)
       : 1
+    // The ticket belongs to the issue's own project, not the selected one.
+    const projectId = String(payload.project_id || store.selectedProjectId)
     await store.createEvent({
       title: payload.title,
       kind: 'ticket',
       issue_iid: payload.issue_iid,
+      web_url: payload.web_url,
       starts_at: start.toISOString(),
       ends_at: start.add(estimateH, 'hour').toISOString(),
       all_day: false,
-      project_id: store.selectedProjectId,
+      project_id: projectId,
       milestone_id: store.selectedMilestoneId,
     })
     // Working on a ticket this day → ensure the project's all-day band exists.
-    await store.ensureProjectDay(start.startOf('day'))
+    await store.ensureProjectDay(start.startOf('day'), projectId)
   } else if (payload.type === 'event-move') {
     const ev = store.events.find((x) => x.id === payload.id)
     if (ev) {
@@ -233,18 +243,20 @@ async function onDropAllDay(day, e) {
   const end = day.hour(18).minute(0).second(0)
 
   if (payload.type === 'issue') {
+    const projectId = String(payload.project_id || store.selectedProjectId)
     await store.createEvent({
       title: payload.title,
       kind: 'ticket',
       issue_iid: payload.issue_iid,
+      web_url: payload.web_url,
       starts_at: start.toISOString(),
       ends_at: end.toISOString(),
       all_day: true,
-      project_id: store.selectedProjectId,
+      project_id: projectId,
       milestone_id: store.selectedMilestoneId,
     })
     // Working on a ticket this day → ensure the project's all-day band exists.
-    await store.ensureProjectDay(day.startOf('day'))
+    await store.ensureProjectDay(day.startOf('day'), projectId)
   } else if (payload.type === 'event-move') {
     const ev = store.events.find((x) => x.id === payload.id)
     if (ev) {
@@ -420,7 +432,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                   v-for="ev in allDayEvents(day)"
                   :key="ev.id"
                   draggable="true"
-                  class="flex cursor-pointer items-center gap-1 truncate rounded-md px-2 py-1 text-[11px] font-medium shadow-sm"
+                  class="group flex cursor-pointer items-center gap-1 truncate rounded-md px-2 py-1 text-[11px] font-medium shadow-sm"
                   :class="eventVisual(ev).soft ? 'border-l-[3px]' : ''"
                   :style="eventVisual(ev).style"
                   @dragstart="onEventDragStart(ev, $event)"
@@ -433,6 +445,19 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                     :class="eventVisual(ev).dot"
                   />
                   <span class="truncate">{{ eventLabel(ev) }}</span>
+                  <a
+                    v-if="issueUrl(ev)"
+                    :href="issueUrl(ev)"
+                    target="_blank"
+                    rel="noopener"
+                    draggable="false"
+                    class="ml-auto shrink-0 rounded p-0.5 opacity-0 transition hover:bg-black/10 group-hover:opacity-70"
+                    title="Ouvrir le ticket dans GitLab"
+                    @click.stop
+                    @mousedown.stop
+                  >
+                    <ExternalLink class="h-3 w-3" />
+                  </a>
                 </div>
               </div>
 
@@ -470,14 +495,27 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                 <template v-for="p in layout(dayEvents(day))" :key="p.e.id">
                   <div
                     draggable="true"
-                    class="absolute cursor-pointer overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-sm transition hover:shadow-md"
+                    class="group absolute cursor-pointer overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-sm transition hover:shadow-md"
                     :class="eventVisual(p.e).soft ? 'border-l-[3px]' : ''"
                     :style="{ ...eventStyle(p.e, p.total, p.col, day), ...eventVisual(p.e).style }"
                     @dragstart="onEventDragStart(p.e, $event)"
                     @dragend="clearDrag"
                     @click.stop="openEvent(p.e)"
                   >
-                    <div class="flex items-center gap-1 font-medium leading-tight">
+                    <a
+                      v-if="issueUrl(p.e)"
+                      :href="issueUrl(p.e)"
+                      target="_blank"
+                      rel="noopener"
+                      draggable="false"
+                      class="absolute right-1 top-1 rounded p-0.5 text-current opacity-0 transition hover:bg-black/10 group-hover:opacity-70"
+                      title="Ouvrir le ticket dans GitLab"
+                      @click.stop
+                      @mousedown.stop
+                    >
+                      <ExternalLink class="h-3 w-3" />
+                    </a>
+                    <div class="flex items-center gap-1 pr-4 font-medium leading-tight">
                       <span
                         v-if="eventVisual(p.e).dot"
                         class="h-1.5 w-1.5 shrink-0 rounded-full"

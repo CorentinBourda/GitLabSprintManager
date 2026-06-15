@@ -357,27 +357,27 @@ export const useSprintStore = defineStore('sprint', {
 
     // Ensure an all-day "working on this project" band exists for `day`.
     // Called whenever a ticket of the current project is scheduled on a day.
-    async ensureProjectDay(day) {
-      if (!this.selectedProjectId) return
+    async ensureProjectDay(day, projectId = this.selectedProjectId) {
+      if (!projectId) return
       // Make sure the local project (color) exists even after a page reload,
       // where selectProject() may not have run.
-      await this.ensureLocalProject(this.selectedProjectId, null)
+      await this.ensureLocalProject(projectId, null)
       const already = this.events.some(
         (e) =>
           e.kind === 'project_day' &&
-          String(e.project_id) === String(this.selectedProjectId) &&
+          String(e.project_id) === String(projectId) &&
           dayjs(e.starts_at).isSame(day, 'day')
       )
       if (already) return
       const start = day.hour(9).minute(0).second(0)
       const end = day.hour(18).minute(0).second(0)
       await this.createEvent({
-        title: this.currentLocalProject?.name || this.selectedProjectName,
+        title: this.localProjectFor(projectId)?.name || this.selectedProjectName,
         kind: 'project_day',
         starts_at: start.toISOString(),
         ends_at: end.toISOString(),
         all_day: true,
-        project_id: this.selectedProjectId,
+        project_id: projectId,
         milestone_id: this.selectedMilestoneId,
       })
     },

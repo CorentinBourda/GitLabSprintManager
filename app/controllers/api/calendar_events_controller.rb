@@ -27,7 +27,7 @@ module Api
     def event_params
       params.require(:calendar_event).permit(
         :title, :kind, :starts_at, :ends_at, :all_day,
-        :project_id, :issue_iid, :milestone_id, :color, :notes
+        :project_id, :issue_iid, :milestone_id, :color, :notes, :web_url
       )
     end
 
@@ -44,6 +44,7 @@ module Api
         milestone_id: event.milestone_id,
         color: event.color,
         notes: event.notes,
+        web_url: event.web_url,
       }
     end
   end

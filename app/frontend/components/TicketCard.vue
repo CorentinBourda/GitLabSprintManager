@@ -40,7 +40,13 @@ function onDragStart(e) {
   e.dataTransfer.effectAllowed = 'copy'
   e.dataTransfer.setData(
     'application/json',
-    JSON.stringify({ type: 'issue', issue_iid: props.issue.iid, title: props.issue.title })
+    JSON.stringify({
+      type: 'issue',
+      issue_iid: props.issue.iid,
+      title: props.issue.title,
+      web_url: props.issue.web_url,
+      project_id: props.issue.project_id,
+    })
   )
   emit('dragstart', props.issue)
 }

@@ -46,6 +46,11 @@ class GitlabClient
     paginate("projects/#{encode(project_id)}/milestones/#{milestone_id}/issues")
   end
 
+  # GET /projects/:id/issues/:issue_iid — a single issue (for its web_url).
+  def issue(project_id:, issue_iid:)
+    get("projects/#{encode(project_id)}/issues/#{issue_iid}")
+  end
+
   # GET /projects/:id/issues/:issue_iid/related_merge_requests
   # Merge requests that reference the issue (the MRs "associated" to a ticket).
   def issue_merge_requests(project_id:, issue_iid:)
