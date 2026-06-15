@@ -1,11 +1,13 @@
-# A purely local calendar entry. Two flavours:
+# A purely local calendar entry. Flavours:
 #   - "ticket"        : a slot where you plan to work on a given GitLab issue
+#   - "project_day"   : an all-day "working on this project" band, auto-created
+#                       the first time a ticket of that project is scheduled on a day
 #   - "other_project" : a block of time spent on something else
 #   - "note"          : a free annotation
 #
 # These never leave the local database; GitLab is never written to.
 class CalendarEvent < ApplicationRecord
-  KINDS = %w[ticket other_project note].freeze
+  KINDS = %w[ticket project_day other_project note].freeze
 
   validates :title, presence: true
   validates :kind, inclusion: { in: KINDS }

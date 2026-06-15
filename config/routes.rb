@@ -9,6 +9,7 @@ Rails.application.routes.draw do
 
     resources :calendar_events, only: %i[index create update destroy]
     resources :ticket_statuses, only: %i[index create]
+    resources :projects, only: %i[index create update]
 
     # Read-only GitLab proxy.
     get "gitlab/connection", to: "gitlab#connection"

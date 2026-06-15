@@ -68,7 +68,13 @@ onMounted(async () => {
   if (urlProject) store.selectedProjectId = urlProject
   if (urlMilestone) store.selectedMilestoneId = urlMilestone
 
-  await Promise.all([store.loadEvents(), store.settings.configured ? store.loadProjects() : null])
+  await Promise.all([
+    store.loadEvents(),
+    store.loadLocalProjects(),
+    store.settings.configured ? store.loadProjects() : null,
+  ])
+  // Ensure already-scheduled tickets have a colored project, even old ones.
+  store.backfillEventProjects()
   if (store.selectedProjectId) await store.loadMilestones()
   if (!store.settings.configured) tab.value = 'settings'
 

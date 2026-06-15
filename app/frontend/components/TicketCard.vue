@@ -13,6 +13,8 @@ const props = defineProps({
   scheduledCount: { type: Number, default: 0 },
   compact: { type: Boolean, default: false },
   mergeRequests: { type: Array, default: () => [] },
+  // When set, the left accent uses the project color instead of the status one.
+  projectColor: { type: String, default: '' },
 })
 const emit = defineEmits(['update:status', 'dragstart'])
 
@@ -47,7 +49,8 @@ function onDragStart(e) {
 <template>
   <div
     class="group relative rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:shadow-md"
-    :class="[`border-l-[3px]`, meta.accent, draggable ? 'cursor-grab active:cursor-grabbing' : '']"
+    :class="[`border-l-[3px]`, projectColor ? '' : meta.accent, draggable ? 'cursor-grab active:cursor-grabbing' : '']"
+    :style="projectColor ? { borderLeftColor: projectColor } : {}"
     :draggable="draggable"
     @dragstart="onDragStart"
   >

@@ -18,6 +18,7 @@ export const useSprintStore = defineStore('sprint', {
     statuses: {}, // issue_iid -> status key
     mergeRequests: {}, // issue_iid -> [merge requests]
     events: [],
+    localProjects: [], // locally-tracked projects (name + color), keyed by gitlab id
 
     selectedProjectId: localStorage.getItem(LS_PROJECT) || '',
     selectedProjectName: localStorage.getItem(LS_PROJECT_NAME) || '',
@@ -54,6 +55,26 @@ export const useSprintStore = defineStore('sprint', {
         guard += 1
       }
       return days
+    },
+
+    // Local project (name + color) for a given GitLab project id, if tracked.
+    localProjectFor: (state) => (gitlabProjectId) =>
+      state.localProjects.find((p) => String(p.gitlab_project_id) === String(gitlabProjectId)) || null,
+
+    currentLocalProject(state) {
+      return state.localProjects.find(
+        (p) => String(p.gitlab_project_id) === String(state.selectedProjectId)
+      ) || null
+    },
+
+    // Color to use for a ticket / project-day event, from its owning project.
+    colorForEvent(state) {
+      return (event) => {
+        const p = state.localProjects.find(
+          (x) => String(x.gitlab_project_id) === String(event.project_id)
+        )
+        return p?.color || null
+      }
     },
 
     statusFor: (state) => (iid) => state.statuses[iid] || DEFAULT_STATUS,
@@ -161,6 +182,11 @@ export const useSprintStore = defineStore('sprint', {
       this.selectedMilestoneId = ''
       this.milestones = []
       this.issues = []
+      // "Start working on a project" → ensure a local project (name + color).
+      // Name = last path segment (e.g. "ca-roule-web"), not the full namespace.
+      const shortName =
+        project.path || (project.name_with_namespace || project.name || '').split('/').pop().trim()
+      this.ensureLocalProject(this.selectedProjectId, shortName)
       await this.loadMilestones()
     },
 
@@ -276,6 +302,84 @@ export const useSprintStore = defineStore('sprint', {
     async deleteEvent(id) {
       await api.delete(`/calendar_events/${id}`)
       this.events = this.events.filter((e) => e.id !== id)
+    },
+
+    // ---- Local projects (name + color) -------------------------------------
+    async loadLocalProjects() {
+      try {
+        this.localProjects = (await api.get('/projects')).data
+      } catch (e) {
+        this.setError(e)
+      }
+    },
+
+    // Upsert the local project for a GitLab id. Adds it to the cache so tickets
+    // and bands can be colored immediately.
+    async ensureLocalProject(gitlabProjectId, name) {
+      if (!gitlabProjectId) return null
+      const existing = this.localProjectFor(gitlabProjectId)
+      if (existing) return existing
+      try {
+        const { data } = await api.post('/projects', {
+          project: { gitlab_project_id: String(gitlabProjectId), name },
+        })
+        if (!this.localProjectFor(data.gitlab_project_id)) {
+          this.localProjects = [...this.localProjects, data]
+        }
+        return data
+      } catch (e) {
+        this.setError(e)
+        return null
+      }
+    },
+
+    async updateLocalProject(id, payload) {
+      const { data } = await api.put(`/projects/${id}`, { project: payload })
+      this.localProjects = this.localProjects.map((p) => (p.id === id ? data : p))
+      return data
+    },
+
+    // Create a local project (with name resolved by the backend) for every
+    // GitLab project that already has scheduled events, so older tickets get
+    // their own color without re-selecting the project.
+    async backfillEventProjects() {
+      const ids = [
+        ...new Set(
+          this.events
+            .filter((e) => e.project_id != null && (e.kind === 'ticket' || e.kind === 'project_day'))
+            .map((e) => String(e.project_id))
+        ),
+      ]
+      for (const id of ids) {
+        if (!this.localProjectFor(id)) await this.ensureLocalProject(id, null)
+      }
+    },
+
+    // Ensure an all-day "working on this project" band exists for `day`.
+    // Called whenever a ticket of the current project is scheduled on a day.
+    async ensureProjectDay(day) {
+      if (!this.selectedProjectId) return
+      // Make sure the local project (color) exists even after a page reload,
+      // where selectProject() may not have run.
+      await this.ensureLocalProject(this.selectedProjectId, null)
+      const already = this.events.some(
+        (e) =>
+          e.kind === 'project_day' &&
+          String(e.project_id) === String(this.selectedProjectId) &&
+          dayjs(e.starts_at).isSame(day, 'day')
+      )
+      if (already) return
+      const start = day.hour(9).minute(0).second(0)
+      const end = day.hour(18).minute(0).second(0)
+      await this.createEvent({
+        title: this.currentLocalProject?.name || this.selectedProjectName,
+        kind: 'project_day',
+        starts_at: start.toISOString(),
+        ends_at: end.toISOString(),
+        all_day: true,
+        project_id: this.selectedProjectId,
+        milestone_id: this.selectedMilestoneId,
+      })
     },
   },
 })

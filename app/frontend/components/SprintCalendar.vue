@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
-import { CalendarRange, Plus, Layers, Info } from 'lucide-vue-next'
+import { CalendarRange, Plus, Layers, Info, Palette } from 'lucide-vue-next'
 import { useSprintStore } from '../stores/sprint'
-import { statusMeta, DAY_START_HOUR, DAY_END_HOUR, HOUR_HEIGHT, EVENT_KINDS } from '../lib/constants'
+import { statusMeta, tint, DAY_START_HOUR, DAY_END_HOUR, HOUR_HEIGHT, EVENT_KINDS } from '../lib/constants'
 import TicketCard from './TicketCard.vue'
 import EventModal from './EventModal.vue'
+import ProjectModal from './ProjectModal.vue'
 
 const store = useSprintStore()
 
@@ -16,8 +17,23 @@ const modalOpen = ref(false)
 const editingEvent = ref(null)
 const dragOverKey = ref(null)
 
+const projectModalOpen = ref(false)
+const editingProject = ref(null)
+function openProject(project) {
+  editingProject.value = project
+  projectModalOpen.value = true
+}
+
 const days = computed(() => store.sprintDays)
 const hasMilestone = computed(() => !!store.currentMilestone)
+
+// Projects shown in the color legend: those present on the calendar plus the
+// currently-selected one. Click a row to rename / recolor.
+const legendProjects = computed(() => {
+  const ids = new Set(store.events.map((e) => String(e.project_id)).filter(Boolean))
+  if (store.selectedProjectId) ids.add(String(store.selectedProjectId))
+  return store.localProjects.filter((p) => ids.has(String(p.gitlab_project_id)))
+})
 
 // All-day lane height kept uniform across columns so the hour grids stay aligned.
 const allDayLaneHeight = computed(() => {
@@ -92,16 +108,32 @@ function eventLabel(e) {
     const issue = issueFor(e)
     return issue ? `#${e.issue_iid} ${issue.title}` : e.title
   }
+  if (e.kind === 'project_day') {
+    return store.localProjectFor(e.project_id)?.name || e.title
+  }
   return e.title
 }
 
+// Visual for a calendar event: tickets are tinted with their project color and
+// keep a status dot; project-day bands are solid project color; other kinds
+// keep their own color.
 function eventVisual(e) {
   if (e.kind === 'ticket') {
+    const color = store.colorForEvent(e) || '#6366f1'
     const issue = issueFor(e)
     const meta = statusMeta(issue ? store.statusFor(issue.iid) : 'not_started')
-    return { soft: true, classes: `${meta.soft} ${meta.accent}`, dot: meta.dot }
+    return {
+      soft: true,
+      dot: meta.dot,
+      style: { backgroundColor: tint(color), borderLeftColor: color, color: '#334155' },
+    }
   }
-  return { soft: false, color: e.color || EVENT_KINDS[e.kind]?.color || '#64748b' }
+  if (e.kind === 'project_day') {
+    const color = store.colorForEvent(e) || '#6366f1'
+    return { soft: false, dot: null, style: { backgroundColor: color, color: '#fff' } }
+  }
+  const color = e.color || EVENT_KINDS[e.kind]?.color || '#64748b'
+  return { soft: false, dot: null, style: { backgroundColor: color, color: '#fff' } }
 }
 
 // ---- Drag & drop ----------------------------------------------------------
@@ -144,6 +176,8 @@ async function onDropHour(day, e) {
       project_id: store.selectedProjectId,
       milestone_id: store.selectedMilestoneId,
     })
+    // Working on a ticket this day → ensure the project's all-day band exists.
+    await store.ensureProjectDay(start.startOf('day'))
   } else if (payload.type === 'event-move') {
     const ev = store.events.find((x) => x.id === payload.id)
     if (ev) {
@@ -175,6 +209,8 @@ async function onDropAllDay(day, e) {
       project_id: store.selectedProjectId,
       milestone_id: store.selectedMilestoneId,
     })
+    // Working on a ticket this day → ensure the project's all-day band exists.
+    await store.ensureProjectDay(day.startOf('day'))
   } else if (payload.type === 'event-move') {
     const ev = store.events.find((x) => x.id === payload.id)
     if (ev) {
@@ -206,6 +242,11 @@ function openSlot(day, hour) {
   modalOpen.value = true
 }
 function openEvent(ev) {
+  // A project-day band edits the project (name + color), not the event itself.
+  if (ev.kind === 'project_day') {
+    const project = store.localProjectFor(ev.project_id)
+    if (project) return openProject(project)
+  }
   editingEvent.value = ev
   modalOpen.value = true
 }
@@ -245,6 +286,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
           :key="issue.iid"
           :issue="issue"
           :status="store.statusFor(issue.iid)"
+          :project-color="store.currentLocalProject?.color || ''"
           :draggable="true"
           compact
         />
@@ -254,6 +296,25 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
         >
           Tous les tickets sont planifiés 🎉
         </p>
+      </div>
+
+      <!-- Project color legend -->
+      <div v-if="legendProjects.length" class="mt-3 border-t border-slate-100 pt-3">
+        <h4 class="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+          <Palette class="h-3.5 w-3.5" /> Projets
+        </h4>
+        <ul class="space-y-0.5">
+          <li v-for="p in legendProjects" :key="p.id">
+            <button
+              class="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs text-slate-600 transition hover:bg-slate-50"
+              title="Changer le nom / la couleur"
+              @click="openProject(p)"
+            >
+              <span class="h-3 w-3 shrink-0 rounded-full" :style="{ backgroundColor: p.color }" />
+              <span class="truncate">{{ p.name }}</span>
+            </button>
+          </li>
+        </ul>
       </div>
 
       <button
@@ -322,12 +383,18 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                   v-for="ev in allDayEvents(day)"
                   :key="ev.id"
                   draggable="true"
-                  class="cursor-pointer truncate rounded-md px-2 py-1 text-[11px] font-medium text-white shadow-sm"
-                  :style="{ backgroundColor: eventVisual(ev).soft ? '#6366f1' : eventVisual(ev).color }"
+                  class="flex cursor-pointer items-center gap-1 truncate rounded-md px-2 py-1 text-[11px] font-medium shadow-sm"
+                  :class="eventVisual(ev).soft ? 'border-l-[3px]' : ''"
+                  :style="eventVisual(ev).style"
                   @dragstart="onEventDragStart(ev, $event)"
                   @click="openEvent(ev)"
                 >
-                  {{ eventLabel(ev) }}
+                  <span
+                    v-if="eventVisual(ev).dot"
+                    class="h-1.5 w-1.5 shrink-0 rounded-full"
+                    :class="eventVisual(ev).dot"
+                  />
+                  <span class="truncate">{{ eventLabel(ev) }}</span>
                 </div>
               </div>
 
@@ -357,18 +424,15 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                 <template v-for="p in layout(dayEvents(day))" :key="p.e.id">
                   <div
                     draggable="true"
-                    class="absolute cursor-pointer overflow-hidden rounded-lg border-l-[3px] px-2 py-1 text-[11px] shadow-sm transition hover:shadow-md"
-                    :class="eventVisual(p.e).soft ? eventVisual(p.e).classes + ' text-slate-700' : 'text-white border-transparent'"
-                    :style="{
-                      ...eventStyle(p.e, p.total, p.col, day),
-                      ...(eventVisual(p.e).soft ? {} : { backgroundColor: eventVisual(p.e).color }),
-                    }"
+                    class="absolute cursor-pointer overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-sm transition hover:shadow-md"
+                    :class="eventVisual(p.e).soft ? 'border-l-[3px]' : ''"
+                    :style="{ ...eventStyle(p.e, p.total, p.col, day), ...eventVisual(p.e).style }"
                     @dragstart="onEventDragStart(p.e, $event)"
                     @click.stop="openEvent(p.e)"
                   >
                     <div class="flex items-center gap-1 font-medium leading-tight">
                       <span
-                        v-if="eventVisual(p.e).soft"
+                        v-if="eventVisual(p.e).dot"
                         class="h-1.5 w-1.5 shrink-0 rounded-full"
                         :class="eventVisual(p.e).dot"
                       />
@@ -387,5 +451,6 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
     </div>
 
     <EventModal :open="modalOpen" :event="editingEvent" @close="modalOpen = false" />
+    <ProjectModal :open="projectModalOpen" :project="editingProject" @close="projectModalOpen = false" />
   </div>
 </template>

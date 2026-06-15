@@ -30,6 +30,11 @@ class GitlabClient
                      order_by: "last_activity_at", search: search.presence)
   end
 
+  # GET /projects/:id — a single project (used to resolve its short name).
+  def project(id)
+    get("projects/#{encode(id)}", simple: true)
+  end
+
   # GET /projects/:id/milestones (paginated so every sprint is available)
   def milestones(project_id:, state: nil)
     paginate("projects/#{encode(project_id)}/milestones",

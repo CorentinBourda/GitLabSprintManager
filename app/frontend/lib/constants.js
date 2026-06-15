@@ -83,6 +83,23 @@ export const EVENT_KINDS = {
   note: { label: 'Note', color: '#64748b' },
 }
 
+// Project color palette — keep in sync with Project::PALETTE (backend).
+export const PROJECT_PALETTE = [
+  '#6366f1', '#ec4899', '#f97316', '#14b8a6', '#0ea5e9',
+  '#8b5cf6', '#ef4444', '#22c55e', '#eab308', '#06b6d4',
+]
+
+// Translucent version of a hex color (for soft ticket backgrounds).
+export function tint(hex, alpha = 0.16) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 // Working-hours window shown in the hour grid.
 export const DAY_START_HOUR = 8
 export const DAY_END_HOUR = 20
