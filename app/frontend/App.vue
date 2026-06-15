@@ -21,11 +21,20 @@ const TABS = [
 ]
 
 const projectOptions = computed(() =>
-  store.projects.map((p) => ({
-    value: String(p.id),
-    label: p.name_with_namespace || p.name,
-    sub: p.path_with_namespace,
-  }))
+  store.projects
+    .map((p) => {
+      // Show the local custom name (e.g. a renamed project) when one exists.
+      const local = store.localProjectFor(p.id)
+      return {
+        value: String(p.id),
+        label: local?.name || p.name_with_namespace || p.name,
+        sub: p.path_with_namespace,
+        color: local?.color || null,
+        custom: !!local,
+      }
+    })
+    // Projects already tracked locally (custom) bubble up to the top.
+    .sort((a, b) => Number(b.custom) - Number(a.custom))
 )
 
 const milestoneOptions = computed(() =>

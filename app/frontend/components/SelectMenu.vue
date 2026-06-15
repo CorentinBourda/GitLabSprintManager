@@ -115,6 +115,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside))
             class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition hover:bg-slate-50"
             @click.stop="choose(option)"
           >
+            <span
+              v-if="option.color"
+              class="h-2.5 w-2.5 shrink-0 rounded-full"
+              :style="{ backgroundColor: option.color }"
+            />
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-medium text-slate-700">{{ option.label }}</div>
               <div v-if="option.sub" class="truncate text-xs text-slate-400">{{ option.sub }}</div>

@@ -17,6 +17,24 @@ const modalOpen = ref(false)
 const editingEvent = ref(null)
 const dragOverKey = ref(null)
 
+// Live drag state: what is being dragged (for its duration) and where it would
+// land, so we can render a ghost preview on the hour grid.
+const dragState = ref(null)
+const dragPreview = ref(null)
+
+function clearDrag() {
+  dragOverKey.value = null
+  dragPreview.value = null
+  dragState.value = null
+}
+
+// Remember the dragged item's duration so the ghost matches the real drop size.
+function onTicketDragStart(issue) {
+  const est = issue?.time_stats?.time_estimate
+  const hours = est ? Math.max(0.5, est / 3600) : 1
+  dragState.value = { durationMin: Math.round(hours * 60) }
+}
+
 const projectModalOpen = ref(false)
 const editingProject = ref(null)
 function openProject(project) {
@@ -155,8 +173,24 @@ function timeFromY(day, container, clientY) {
   return day.hour(h).minute(min).second(0)
 }
 
+// Update the ghost preview as the pointer moves over an hour grid.
+function onHourDragOver(day, e) {
+  e.preventDefault()
+  const key = 'h-' + day.format('YYYY-MM-DD')
+  dragOverKey.value = key
+  const start = timeFromY(day, e.currentTarget, e.clientY)
+  const startFloat = start.hour() + start.minute() / 60
+  const durationMin = dragState.value?.durationMin || 60
+  dragPreview.value = {
+    key,
+    top: (startFloat - DAY_START_HOUR) * HOUR_HEIGHT,
+    height: Math.max(22, (durationMin / 60) * HOUR_HEIGHT - 2),
+    label: `${start.format('HH:mm')} – ${start.add(durationMin, 'minute').format('HH:mm')}`,
+  }
+}
+
 async function onDropHour(day, e) {
-  dragOverKey.value = null
+  clearDrag()
   const payload = readPayload(e)
   if (!payload) return
   const start = timeFromY(day, e.currentTarget, e.clientY)
@@ -192,7 +226,7 @@ async function onDropHour(day, e) {
 }
 
 async function onDropAllDay(day, e) {
-  dragOverKey.value = null
+  clearDrag()
   const payload = readPayload(e)
   if (!payload) return
   const start = day.hour(9).minute(0).second(0)
@@ -226,6 +260,8 @@ async function onDropAllDay(day, e) {
 function onEventDragStart(ev, e) {
   e.dataTransfer.effectAllowed = 'move'
   e.dataTransfer.setData('application/json', JSON.stringify({ type: 'event-move', id: ev.id }))
+  const durationMin = dayjs(ev.ends_at).diff(dayjs(ev.starts_at), 'minute')
+  dragState.value = { durationMin: durationMin || 60 }
 }
 
 // ---- Modal ----------------------------------------------------------------
@@ -289,6 +325,8 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
           :project-color="store.currentLocalProject?.color || ''"
           :draggable="true"
           compact
+          @dragstart="onTicketDragStart"
+          @dragend="clearDrag"
         />
         <p
           v-if="!store.unscheduledIssues.length"
@@ -375,8 +413,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                 class="space-y-1 border-b border-slate-100 p-1 transition"
                 :style="{ height: allDayLaneHeight + 'px' }"
                 :class="dragOverKey === 'ad-' + day.format('YYYY-MM-DD') ? 'bg-brand-50' : ''"
-                @dragover.prevent="dragOverKey = 'ad-' + day.format('YYYY-MM-DD')"
-                @dragleave="dragOverKey = null"
+                @dragover.prevent="dragOverKey = 'ad-' + day.format('YYYY-MM-DD'); dragPreview = null"
                 @drop="onDropAllDay(day, $event)"
               >
                 <div
@@ -387,6 +424,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                   :class="eventVisual(ev).soft ? 'border-l-[3px]' : ''"
                   :style="eventVisual(ev).style"
                   @dragstart="onEventDragStart(ev, $event)"
+                  @dragend="clearDrag"
                   @click="openEvent(ev)"
                 >
                   <span
@@ -403,10 +441,18 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                 class="relative transition"
                 :style="{ height: gridHeight + 'px' }"
                 :class="dragOverKey === 'h-' + day.format('YYYY-MM-DD') ? 'bg-brand-50/40' : ''"
-                @dragover.prevent="dragOverKey = 'h-' + day.format('YYYY-MM-DD')"
-                @dragleave="dragOverKey = null"
+                @dragover="onHourDragOver(day, $event)"
                 @drop="onDropHour(day, $event)"
               >
+                <!-- drop preview: shows the exact slot the item will land on -->
+                <div
+                  v-if="dragPreview && dragPreview.key === 'h-' + day.format('YYYY-MM-DD')"
+                  class="pointer-events-none absolute inset-x-1 z-20 flex items-start rounded-lg border-2 border-dashed border-brand-400 bg-brand-100/60"
+                  :style="{ top: dragPreview.top + 'px', height: dragPreview.height + 'px' }"
+                >
+                  <span class="px-1.5 py-0.5 text-[11px] font-semibold text-brand-700">{{ dragPreview.label }}</span>
+                </div>
+
                 <!-- gridlines / click-to-add -->
                 <div
                   v-for="h in HOURS"
@@ -428,6 +474,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                     :class="eventVisual(p.e).soft ? 'border-l-[3px]' : ''"
                     :style="{ ...eventStyle(p.e, p.total, p.col, day), ...eventVisual(p.e).style }"
                     @dragstart="onEventDragStart(p.e, $event)"
+                    @dragend="clearDrag"
                     @click.stop="openEvent(p.e)"
                   >
                     <div class="flex items-center gap-1 font-medium leading-tight">

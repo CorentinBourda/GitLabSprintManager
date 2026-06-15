@@ -61,7 +61,19 @@ function onDragStart(e) {
       />
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1.5 text-xs font-medium text-slate-400">
-          <span>#{{ issue.iid }}</span>
+          <a
+            :href="issue.web_url"
+            target="_blank"
+            rel="noopener"
+            draggable="false"
+            class="inline-flex items-center gap-0.5 transition hover:text-brand-600"
+            :title="`Ouvrir #${issue.iid} dans GitLab`"
+            @click.stop
+            @mousedown.stop
+          >
+            #{{ issue.iid }}
+            <ExternalLink class="h-3 w-3" />
+          </a>
           <span v-if="scheduledCount" class="inline-flex items-center gap-1 text-brand-500">
             <CalendarClock class="h-3 w-3" /> {{ scheduledCount }}
           </span>
