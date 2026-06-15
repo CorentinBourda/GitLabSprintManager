@@ -7,6 +7,7 @@ WORKDIR /rails
 RUN apk add --update --no-cache \
     alpine-sdk \
     nodejs \
+    npm \
     tzdata \
     gcompat \
     vim \

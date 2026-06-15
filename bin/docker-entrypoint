@@ -17,7 +17,7 @@ fi
 # It is mandatory to install yarn dependencies IF there is a `package.json` file.
 if [ -f package.json ] && [ ! -d node_modules ]
 then
-  yarn install
+  npm install
 fi
 
 # Remove pidfile if it exists else the server will not launch

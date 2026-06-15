@@ -24,7 +24,7 @@
 	},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	"forwardPorts": [3000, "database:5432", "mailcatcher:1080"],
+	"forwardPorts": [3005, 3036, "database:5432", "mailcatcher:1080"],
 
 	// Configure tool-specific properties.
 	"customizations": {

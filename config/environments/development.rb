@@ -8,6 +8,14 @@ Rails.application.configure do
   # since you don't have to restart the web server when you make code changes.
   config.enable_reloading = true
 
+  config.hosts << /\A([a-z0-9-]+\.)*lvh\.me(:\d+)?\z/i
+  config.hosts << /\A([a-z0-9-]+\.)*localhost(:\d+)?\z/i
+  # ngrok tunnels — phone testing of the portal (live QR scanner needs an
+  # HTTPS context, which ngrok provides). Covers both the legacy `.app` and
+  # the current `.dev` free-tier hostnames.
+  config.hosts << /\A[a-z0-9-]+\.ngrok-free\.(app|dev)(:\d+)?\z/i
+  config.hosts << /\A[a-z0-9-]+\.ngrok\.io(:\d+)?\z/i
+
   # Do not eager load code on boot.
   config.eager_load = false
 

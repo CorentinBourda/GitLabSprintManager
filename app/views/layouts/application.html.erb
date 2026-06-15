@@ -1,16 +1,19 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr" class="h-full">
   <head>
-    <title>GitLabSprintManager</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>GitLab Sprint Manager</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <%= csrf_meta_tags %>
-    <%= csp_meta_tag %>
 
-    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
-    <%= javascript_importmap_tags %>
+    <link rel="preconnect" href="https://rsms.me/">
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+
+    <%= vite_client_tag %>
+    <%= vite_javascript_tag "application" %>
   </head>
 
-  <body>
+  <body class="h-full bg-slate-50 text-slate-900 antialiased">
     <%= yield %>
   </body>
 </html>

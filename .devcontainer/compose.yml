@@ -11,7 +11,15 @@ services:
       - ..:/rails
     environment:
       RAILS_ENV: development
-      URL: http://localhost:3000
+      URL: http://localhost:3005
+      PORT: 3005
+      # Rails 7.1 binds `rails s` to localhost in development; inside the
+      # container that makes it unreachable through the published port.
+      # Force 0.0.0.0 so a plain `rails s` works.
+      BINDING: 0.0.0.0
+    ports:
+      - '3005:3005'
+      - '3036:3036'
     env_file:
       - path: .env
         required: false

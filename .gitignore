@@ -31,6 +31,17 @@
 
 /public/assets
 
+# Vite / Node frontend build artifacts.
+/node_modules
+/public/vite
+/public/vite-dev
+/public/vite-test
+*-debug.log
+yarn-error.log
+
+# Dogfood / QA artifacts (reports, screenshots, videos).
+/dogfood-output
+
 # Ignore master key for decrypting credentials and more.
 /config/master.key
 

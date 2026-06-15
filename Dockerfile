@@ -32,6 +32,7 @@ FROM base AS build
 RUN apk add --update --no-cache \
     alpine-sdk \
     nodejs \
+    npm \
     tzdata \
     shared-mime-info \
     gcompat \
@@ -53,10 +54,14 @@ RUN bundle install && \
 # Copy application code
 COPY . .
 
+# Install JS dependencies for the Vite/Vue frontend before building assets.
+RUN npm install
+
 # Precompile bootsnap code for faster boot times
 RUN bundle exec bootsnap precompile app/ lib/
 
 # Precompiling assets for production without requiring secret RAILS_MASTER_KEY
+# (vite_rails hooks into assets:precompile to run `vite build`).
 RUN SECRET_KEY_BASE=1 ./bin/rails assets:precompile
 
 # Final stage for app image

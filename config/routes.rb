@@ -1,12 +1,24 @@
 Rails.application.routes.draw do
   health_check_routes
 
-  # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
-
-  # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
-  # Can be used by load balancers and uptime monitors to verify that the app is live.
+  # Reveal health status on /up that returns 200 if the app boots with no exceptions.
   get "up" => "rails/health#show", as: :rails_health_check
 
-  # Defines the root path route ("/")
-  # root "posts#index"
+  namespace :api, defaults: { format: :json } do
+    resource :settings, only: %i[show update]
+
+    resources :calendar_events, only: %i[index create update destroy]
+    resources :ticket_statuses, only: %i[index create]
+
+    # Read-only GitLab proxy.
+    get "gitlab/connection", to: "gitlab#connection"
+    get "gitlab/projects",   to: "gitlab#projects"
+    get "gitlab/milestones", to: "gitlab#milestones"
+    get "gitlab/issues",         to: "gitlab#issues"
+    get "gitlab/merge_requests", to: "gitlab#merge_requests"
+    get "gitlab/avatar",         to: "gitlab#avatar"
+  end
+
+  # Single-page Vue application.
+  root "pages#index"
 end
