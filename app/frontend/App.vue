@@ -7,6 +7,7 @@ import {
 } from 'lucide-vue-next'
 import { useSprintStore } from './stores/sprint'
 import SelectMenu from './components/SelectMenu.vue'
+import FavoritesMenu from './components/FavoritesMenu.vue'
 import SprintBoard from './components/SprintBoard.vue'
 import SprintCalendar from './components/SprintCalendar.vue'
 import SettingsView from './components/SettingsView.vue'
@@ -80,6 +81,7 @@ onMounted(async () => {
   await Promise.all([
     store.loadEvents(),
     store.loadLocalProjects(),
+    store.loadFavorites(),
     store.settings.configured ? store.loadProjects() : null,
   ])
   // Ensure already-scheduled tickets have a colored project, even old ones.
@@ -136,6 +138,7 @@ onMounted(async () => {
               @update:model-value="store.selectMilestone($event)"
             />
           </div>
+          <FavoritesMenu />
         </div>
 
         <!-- Connection indicator -->

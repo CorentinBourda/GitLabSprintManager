@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_06_15_101005) do
+ActiveRecord::Schema[7.1].define(version: 2026_06_15_101006) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -30,6 +30,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_15_101005) do
     t.string "web_url"
     t.index ["project_id", "issue_iid"], name: "index_calendar_events_on_project_id_and_issue_iid"
     t.index ["starts_at"], name: "index_calendar_events_on_starts_at"
+  end
+
+  create_table "favorites", force: :cascade do |t|
+    t.string "project_id", null: false
+    t.string "project_name"
+    t.string "milestone_id", null: false
+    t.string "milestone_title"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["project_id", "milestone_id"], name: "index_favorites_on_project_id_and_milestone_id", unique: true
   end
 
   create_table "gitlab_configs", force: :cascade do |t|

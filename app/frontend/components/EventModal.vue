@@ -68,8 +68,11 @@ async function submit() {
       color: form.value.color,
       notes: form.value.notes,
       issue_iid: form.value.kind === 'ticket' ? form.value.issue_iid : null,
-      project_id: store.selectedProjectId,
-      milestone_id: store.selectedMilestoneId,
+      // Preserve the event's own project/url/milestone when editing; only fall
+      // back to the current selection for brand-new events.
+      web_url: form.value.kind === 'ticket' ? (props.event?.web_url ?? null) : null,
+      project_id: form.value.project_id ?? store.selectedProjectId,
+      milestone_id: form.value.milestone_id ?? store.selectedMilestoneId,
     }
     if (isEditing.value) await store.updateEvent(props.event.id, payload)
     else await store.createEvent(payload)

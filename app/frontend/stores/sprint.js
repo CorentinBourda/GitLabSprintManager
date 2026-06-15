@@ -19,6 +19,7 @@ export const useSprintStore = defineStore('sprint', {
     mergeRequests: {}, // issue_iid -> [merge requests]
     events: [],
     localProjects: [], // locally-tracked projects (name + color), keyed by gitlab id
+    favorites: [], // bookmarked sprints (project + milestone) for quick access
 
     selectedProjectId: localStorage.getItem(LS_PROJECT) || '',
     selectedProjectName: localStorage.getItem(LS_PROJECT_NAME) || '',
@@ -75,6 +76,21 @@ export const useSprintStore = defineStore('sprint', {
         )
         return p?.color || null
       }
+    },
+
+    favoriteFor: (state) => (projectId, milestoneId) =>
+      state.favorites.find(
+        (f) =>
+          String(f.project_id) === String(projectId) &&
+          String(f.milestone_id) === String(milestoneId)
+      ) || null,
+
+    currentFavorite(state) {
+      return state.favorites.find(
+        (f) =>
+          String(f.project_id) === String(state.selectedProjectId) &&
+          String(f.milestone_id) === String(state.selectedMilestoneId)
+      ) || null
     },
 
     statusFor: (state) => (iid) => state.statuses[iid] || DEFAULT_STATUS,
@@ -337,6 +353,51 @@ export const useSprintStore = defineStore('sprint', {
       const { data } = await api.put(`/projects/${id}`, { project: payload })
       this.localProjects = this.localProjects.map((p) => (p.id === id ? data : p))
       return data
+    },
+
+    // ---- Favorite sprints --------------------------------------------------
+    async loadFavorites() {
+      try {
+        this.favorites = (await api.get('/favorites')).data
+      } catch (e) {
+        this.setError(e)
+      }
+    },
+
+    // Toggle the currently-selected sprint as a favorite.
+    async toggleFavorite() {
+      if (!this.selectedProjectId || !this.selectedMilestoneId) return
+      const existing = this.currentFavorite
+      if (existing) {
+        await api.delete(`/favorites/${existing.id}`)
+        this.favorites = this.favorites.filter((f) => f.id !== existing.id)
+        return
+      }
+      const { data } = await api.post('/favorites', {
+        favorite: {
+          project_id: this.selectedProjectId,
+          project_name: this.currentLocalProject?.name || this.selectedProjectName,
+          milestone_id: this.selectedMilestoneId,
+          milestone_title: this.currentMilestone?.title || '',
+        },
+      })
+      this.favorites = [...this.favorites, data]
+    },
+
+    async removeFavorite(id) {
+      await api.delete(`/favorites/${id}`)
+      this.favorites = this.favorites.filter((f) => f.id !== id)
+    },
+
+    // Jump straight to a bookmarked sprint (project + milestone) and load it.
+    async goToSprint(favorite) {
+      this.selectedProjectId = String(favorite.project_id)
+      this.selectedProjectName = favorite.project_name || this.selectedProjectName
+      localStorage.setItem(LS_PROJECT, this.selectedProjectId)
+      localStorage.setItem(LS_PROJECT_NAME, this.selectedProjectName)
+      this.ensureLocalProject(this.selectedProjectId, null)
+      await this.loadMilestones()
+      await this.selectMilestone(favorite.milestone_id)
     },
 
     // Create a local project (with name resolved by the backend) for every

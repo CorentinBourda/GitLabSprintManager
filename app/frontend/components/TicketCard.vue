@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { ExternalLink, GripVertical, CalendarClock, GitMerge } from 'lucide-vue-next'
+import { ExternalLink, GripVertical, CalendarClock, GitMerge, Timer } from 'lucide-vue-next'
 import { statusMeta } from '../lib/constants'
 import { avatarSrc, initials } from '../lib/gitlab'
 import { useSprintStore } from '../stores/sprint'
@@ -20,6 +20,16 @@ const emit = defineEmits(['update:status', 'dragstart'])
 
 const store = useSprintStore()
 const meta = computed(() => statusMeta(props.status))
+
+// GitLab time estimate (seconds) → "2h", "1h30", "45min", or null if unestimated.
+const estimateLabel = computed(() => {
+  const sec = props.issue.time_stats?.time_estimate || 0
+  if (!sec) return null
+  const h = Math.floor(sec / 3600)
+  const m = Math.round((sec % 3600) / 60)
+  if (h && m) return `${h}h${String(m).padStart(2, '0')}`
+  return h ? `${h}h` : `${m}min`
+})
 
 // The "associated" MR: prefer an open one, then a merged one, else the first.
 const primaryMr = computed(() => {
@@ -82,6 +92,20 @@ function onDragStart(e) {
           </a>
           <span v-if="scheduledCount" class="inline-flex items-center gap-1 text-brand-500">
             <CalendarClock class="h-3 w-3" /> {{ scheduledCount }}
+          </span>
+          <span
+            v-if="estimateLabel"
+            class="inline-flex items-center gap-1 text-slate-500"
+            title="Estimation GitLab"
+          >
+            <Timer class="h-3 w-3" /> {{ estimateLabel }}
+          </span>
+          <span
+            v-else
+            class="inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+            title="Aucune estimation sur GitLab"
+          >
+            Non estimé
           </span>
         </div>
         <p

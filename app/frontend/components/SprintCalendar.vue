@@ -42,7 +42,8 @@ function openProject(project) {
   projectModalOpen.value = true
 }
 
-const days = computed(() => store.sprintDays)
+// Working days only — hide Saturdays (6) and Sundays (0).
+const days = computed(() => store.sprintDays.filter((d) => d.day() !== 0 && d.day() !== 6))
 const hasMilestone = computed(() => !!store.currentMilestone)
 
 // Projects shown in the color legend: those present on the calendar plus the
@@ -130,8 +131,9 @@ function issueUrl(e) {
 
 function eventLabel(e) {
   if (e.kind === 'ticket') {
-    const issue = issueFor(e)
-    return issue ? `#${e.issue_iid} ${issue.title}` : e.title
+    // Prefer the event's own (possibly edited) title, falling back to the issue.
+    const title = e.title || issueFor(e)?.title || ''
+    return `#${e.issue_iid} ${title}`.trim()
   }
   if (e.kind === 'project_day') {
     return store.localProjectFor(e.project_id)?.name || e.title
