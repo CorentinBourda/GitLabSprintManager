@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
-import { CalendarRange, Plus, Layers, Info, Palette, ExternalLink } from 'lucide-vue-next'
+import { CalendarRange, Plus, Layers, Info, Palette, ExternalLink, Scissors } from 'lucide-vue-next'
 import { useSprintStore } from '../stores/sprint'
 import { statusMeta, tint, DAY_START_HOUR, DAY_END_HOUR, HOUR_HEIGHT, EVENT_KINDS } from '../lib/constants'
 import TicketCard from './TicketCard.vue'
@@ -272,10 +272,104 @@ async function onDropAllDay(day, e) {
 }
 
 function onEventDragStart(ev, e) {
+  // A resize in progress must not turn into a move-drag.
+  if (resizeState.value) {
+    e.preventDefault()
+    return
+  }
   e.dataTransfer.effectAllowed = 'move'
   e.dataTransfer.setData('application/json', JSON.stringify({ type: 'event-move', id: ev.id }))
   const durationMin = dayjs(ev.ends_at).diff(dayjs(ev.starts_at), 'minute')
   dragState.value = { durationMin: durationMin || 60 }
+}
+
+// ---- Resize ---------------------------------------------------------------
+// Drag the top or bottom edge of a timed slot to change when it starts / ends.
+// Snaps to 15-minute steps and keeps at least a 15-minute slot.
+const SNAP_MS = 15 * 60 * 1000
+const resizeState = ref(null) // { id, edge, startY, startMs, endMs, curStart, curEnd }
+
+// During a resize, show the event at its in-progress times instead of the
+// stored ones, so the block grows/shrinks live under the cursor.
+function withResize(e) {
+  const st = resizeState.value
+  if (!st || st.id !== e.id) return e
+  return { ...e, starts_at: st.curStart, ends_at: st.curEnd }
+}
+
+function onResizeStart(ev, edge, e) {
+  e.preventDefault()
+  e.stopPropagation()
+  resizeState.value = {
+    id: ev.id,
+    edge,
+    startY: e.clientY,
+    startMs: +dayjs(ev.starts_at),
+    endMs: +dayjs(ev.ends_at),
+    curStart: dayjs(ev.starts_at).toISOString(),
+    curEnd: dayjs(ev.ends_at).toISOString(),
+  }
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', onResizeMove)
+  window.addEventListener('mouseup', onResizeEnd)
+}
+
+function onResizeMove(e) {
+  const st = resizeState.value
+  if (!st) return
+  const deltaMs = ((e.clientY - st.startY) / HOUR_HEIGHT) * 3600 * 1000
+  if (st.edge === 'bottom') {
+    let end = Math.round((st.endMs + deltaMs) / SNAP_MS) * SNAP_MS
+    end = Math.max(st.startMs + SNAP_MS, end)
+    st.curEnd = new Date(end).toISOString()
+  } else {
+    let start = Math.round((st.startMs + deltaMs) / SNAP_MS) * SNAP_MS
+    start = Math.min(st.endMs - SNAP_MS, start)
+    st.curStart = new Date(start).toISOString()
+  }
+}
+
+async function onResizeEnd() {
+  const st = resizeState.value
+  window.removeEventListener('mousemove', onResizeMove)
+  window.removeEventListener('mouseup', onResizeEnd)
+  document.body.style.userSelect = ''
+  resizeState.value = null
+  if (!st) return
+  const ev = store.events.find((x) => x.id === st.id)
+  if (!ev) return
+  const changed = +dayjs(st.curStart) !== +dayjs(ev.starts_at) || +dayjs(st.curEnd) !== +dayjs(ev.ends_at)
+  if (changed) {
+    await store.updateEvent(st.id, { starts_at: st.curStart, ends_at: st.curEnd })
+  }
+}
+
+// ---- Split ----------------------------------------------------------------
+// Cut a timed slot into two identical halves: the original shrinks to its first
+// half, an identical copy (same ticket) is created for the second half right
+// after it. Because each half is itself a normal event, you can split again and
+// again to spread a ticket across the calendar in ever-smaller chunks.
+const splittable = (e) => e.kind === 'ticket' && !e.all_day
+async function splitEvent(ev) {
+  const start = dayjs(ev.starts_at)
+  const end = dayjs(ev.ends_at)
+  const totalMin = end.diff(start, 'minute')
+  if (totalMin < 30) return // keep each half ≥ 15 min
+  const half = Math.round(totalMin / 2)
+  const mid = start.add(half, 'minute')
+  await store.updateEvent(ev.id, { ends_at: mid.toISOString() })
+  await store.createEvent({
+    title: ev.title,
+    kind: ev.kind,
+    issue_iid: ev.issue_iid,
+    web_url: ev.web_url,
+    starts_at: mid.toISOString(),
+    ends_at: end.toISOString(),
+    all_day: false,
+    color: ev.color,
+    project_id: ev.project_id,
+    milestone_id: ev.milestone_id,
+  })
 }
 
 // ---- Modal ----------------------------------------------------------------
@@ -499,25 +593,58 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                     draggable="true"
                     class="group absolute cursor-pointer overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-sm transition hover:shadow-md"
                     :class="eventVisual(p.e).soft ? 'border-l-[3px]' : ''"
-                    :style="{ ...eventStyle(p.e, p.total, p.col, day), ...eventVisual(p.e).style }"
+                    :style="{ ...eventStyle(withResize(p.e), p.total, p.col, day), ...eventVisual(p.e).style }"
                     @dragstart="onEventDragStart(p.e, $event)"
                     @dragend="clearDrag"
                     @click.stop="openEvent(p.e)"
                   >
-                    <a
-                      v-if="issueUrl(p.e)"
-                      :href="issueUrl(p.e)"
-                      target="_blank"
-                      rel="noopener"
+                    <!-- top / bottom resize handles -->
+                    <div
+                      class="absolute inset-x-0 top-0 z-10 flex h-2 cursor-ns-resize items-center justify-center"
+                      title="Étirer le créneau"
                       draggable="false"
-                      class="absolute right-1 top-1 rounded p-0.5 text-current opacity-0 transition hover:bg-black/10 group-hover:opacity-70"
-                      title="Ouvrir le ticket dans GitLab"
+                      @mousedown="onResizeStart(p.e, 'top', $event)"
                       @click.stop
-                      @mousedown.stop
                     >
-                      <ExternalLink class="h-3 w-3" />
-                    </a>
-                    <div class="flex items-center gap-1 pr-4 font-medium leading-tight">
+                      <div class="h-0.5 w-6 rounded-full bg-current opacity-0 transition group-hover:opacity-40" />
+                    </div>
+                    <div
+                      class="absolute inset-x-0 bottom-0 z-10 flex h-2 cursor-ns-resize items-center justify-center"
+                      title="Étirer le créneau"
+                      draggable="false"
+                      @mousedown="onResizeStart(p.e, 'bottom', $event)"
+                      @click.stop
+                    >
+                      <div class="h-0.5 w-6 rounded-full bg-current opacity-0 transition group-hover:opacity-40" />
+                    </div>
+
+                    <div class="absolute right-1 top-1 z-20 flex items-center gap-0.5">
+                      <button
+                        v-if="splittable(p.e)"
+                        type="button"
+                        draggable="false"
+                        class="rounded p-0.5 text-current opacity-0 transition hover:bg-black/10 group-hover:opacity-70"
+                        title="Couper le créneau en deux"
+                        @click.stop="splitEvent(p.e)"
+                        @mousedown.stop
+                      >
+                        <Scissors class="h-3 w-3" />
+                      </button>
+                      <a
+                        v-if="issueUrl(p.e)"
+                        :href="issueUrl(p.e)"
+                        target="_blank"
+                        rel="noopener"
+                        draggable="false"
+                        class="rounded p-0.5 text-current opacity-0 transition hover:bg-black/10 group-hover:opacity-70"
+                        title="Ouvrir le ticket dans GitLab"
+                        @click.stop
+                        @mousedown.stop
+                      >
+                        <ExternalLink class="h-3 w-3" />
+                      </a>
+                    </div>
+                    <div class="flex items-center gap-1 pr-9 font-medium leading-tight">
                       <span
                         v-if="eventVisual(p.e).dot"
                         class="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -526,7 +653,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                       <span class="truncate">{{ eventLabel(p.e) }}</span>
                     </div>
                     <div class="mt-0.5 opacity-70">
-                      {{ dayjs(p.e.starts_at).format('HH:mm') }}–{{ dayjs(p.e.ends_at).format('HH:mm') }}
+                      {{ dayjs(withResize(p.e).starts_at).format('HH:mm') }}–{{ dayjs(withResize(p.e).ends_at).format('HH:mm') }}
                     </div>
                   </div>
                 </template>
