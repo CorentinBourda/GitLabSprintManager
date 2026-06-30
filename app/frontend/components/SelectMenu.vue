@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ChevronsUpDown, Check, Search, Loader2 } from 'lucide-vue-next'
+import { fuzzyMatch } from '../lib/text'
 
 const props = defineProps({
   modelValue: { type: [String, Number], default: '' },
@@ -28,10 +29,12 @@ function optionTitle(option) {
   return option.sub ? `${option.label} — ${option.sub}` : option.label
 }
 
+// Accent- and separator-insensitive matching over both the label and the
+// sub-line (e.g. the project path), so "caroule" finds "ÇaRoule".
 const filtered = computed(() => {
   if (!props.searchable || !query.value) return props.options
-  const q = query.value.toLowerCase()
-  return props.options.filter((o) => o.label.toLowerCase().includes(q))
+  const q = query.value
+  return props.options.filter((o) => fuzzyMatch(o.label, q) || fuzzyMatch(o.sub, q))
 })
 
 async function toggle() {

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
-import { CalendarRange, Plus, Layers, Info, Palette, ExternalLink, Scissors } from 'lucide-vue-next'
+import { CalendarRange, Plus, Layers, Info, Palette, ExternalLink, Scissors, Sparkles, Download, Loader2 } from 'lucide-vue-next'
 import { useSprintStore } from '../stores/sprint'
 import { statusMeta, tint, DAY_START_HOUR, DAY_END_HOUR, HOUR_HEIGHT, EVENT_KINDS } from '../lib/constants'
 import TicketCard from './TicketCard.vue'
@@ -133,7 +133,9 @@ function eventLabel(e) {
   if (e.kind === 'ticket') {
     // Prefer the event's own (possibly edited) title, falling back to the issue.
     const title = e.title || issueFor(e)?.title || ''
-    return `#${e.issue_iid} ${title}`.trim()
+    // Only show the issue number when there actually is one (free-form ticket
+    // blocks have no iid, so we'd otherwise render a stray "#null").
+    return e.issue_iid ? `#${e.issue_iid} ${title}`.trim() : title
   }
   if (e.kind === 'project_day') {
     return store.localProjectFor(e.project_id)?.name || e.title
@@ -372,6 +374,108 @@ async function splitEvent(ev) {
   })
 }
 
+// ---- Auto-planning ---------------------------------------------------------
+// Greedily lay every unscheduled ticket onto the working days of the sprint,
+// filling each day from the first free hour up to the end of the working
+// window. Each ticket's length follows its GitLab estimate (1 h default). The
+// result is a rough plan the user can then fine-tune by dragging.
+const planning = ref(false)
+async function autoPlan() {
+  if (planning.value) return
+  const pending = [...store.unscheduledIssues]
+  const workdays = days.value
+  if (!pending.length || !workdays.length) return
+  planning.value = true
+  try {
+    // Per-day cursor: starts at the working-hours start, or after the latest
+    // event already scheduled that day, so we never stack on existing blocks.
+    const cursor = {}
+    workdays.forEach((d) => {
+      const base = d.hour(DAY_START_HOUR).minute(0).second(0)
+      const latest = store.events
+        .filter((e) => !e.all_day && overlapsDay(e, d))
+        .reduce((m, e) => Math.max(m, +dayjs(e.ends_at)), +base)
+      cursor[d.format('YYYY-MM-DD')] = dayjs(latest)
+    })
+
+    let di = 0
+    for (const issue of pending) {
+      const durH = issue.time_stats?.time_estimate
+        ? Math.max(0.5, issue.time_stats.time_estimate / 3600)
+        : 1
+      // Advance to a day that can still fit this ticket before the day ends.
+      while (di < workdays.length) {
+        const day = workdays[di]
+        const start = cursor[day.format('YYYY-MM-DD')]
+        const endFloat = start.hour() + start.minute() / 60 + durH
+        if (endFloat <= DAY_END_HOUR + 1e-9) break
+        di += 1
+      }
+      if (di >= workdays.length) break // sprint window is full
+
+      const day = workdays[di]
+      const start = cursor[day.format('YYYY-MM-DD')]
+      const end = start.add(durH, 'hour')
+      const projectId = String(issue.project_id || store.selectedProjectId)
+      await store.createEvent({
+        title: issue.title,
+        kind: 'ticket',
+        issue_iid: issue.iid,
+        web_url: issue.web_url,
+        starts_at: start.toISOString(),
+        ends_at: end.toISOString(),
+        all_day: false,
+        project_id: projectId,
+        milestone_id: store.selectedMilestoneId,
+      })
+      await store.ensureProjectDay(day.startOf('day'), projectId)
+      cursor[day.format('YYYY-MM-DD')] = end
+    }
+  } catch (e) {
+    store.setError(e)
+  } finally {
+    planning.value = false
+  }
+}
+
+// ---- iCal export -----------------------------------------------------------
+function icsEscape(s) {
+  return String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n')
+}
+function icsDate(d) {
+  return new Date(d).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+function exportIcs() {
+  const evs = store.events.filter((e) => !e.all_day)
+  if (!evs.length) return
+  const stamp = icsDate(new Date())
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sprint Manager//FR', 'CALSCALE:GREGORIAN']
+  evs.forEach((e) => {
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:gsm-${e.id}@sprint-manager`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${icsDate(e.starts_at)}`,
+      `DTEND:${icsDate(e.ends_at)}`,
+      `SUMMARY:${icsEscape(eventLabel(e))}`
+    )
+    if (e.notes) lines.push(`DESCRIPTION:${icsEscape(e.notes)}`)
+    const url = issueUrl(e)
+    if (url) lines.push(`URL:${url}`)
+    lines.push('END:VEVENT')
+  })
+  lines.push('END:VCALENDAR')
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' })
+  const href = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = `${(store.currentMilestone?.title || 'sprint').replace(/[^a-z0-9]+/gi, '-')}.ics`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(href)
+}
+
 // ---- Modal ----------------------------------------------------------------
 function openNew() {
   editingEvent.value = null
@@ -409,9 +513,9 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
     </div>
   </div>
 
-  <div v-else class="flex h-[calc(100vh-9rem)] gap-4">
+  <div v-else class="flex flex-col gap-4 lg:h-[calc(100vh-9rem)] lg:flex-row">
     <!-- Sidebar: tickets to schedule -->
-    <aside class="flex w-72 shrink-0 flex-col rounded-2xl bg-white p-4 shadow-card">
+    <aside class="flex w-full shrink-0 flex-col rounded-2xl bg-white p-4 shadow-card lg:w-72">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-slate-700">À planifier</h3>
         <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
@@ -421,10 +525,22 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
 
       <div class="mb-3 flex items-start gap-2 rounded-xl bg-brand-50 p-2.5 text-xs text-brand-700">
         <Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>Glisse un ticket sur un créneau horaire ou sur la bande « jour ».</span>
+        <span>Glisse un ticket sur un créneau, ou utilise « Planifier tout ». Le planning regroupe tous les projets.</span>
       </div>
 
-      <div class="-mr-2 flex-1 space-y-2 overflow-y-auto pr-2 scrollbar-slim">
+      <button
+        v-if="store.unscheduledIssues.length"
+        class="mb-3 inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
+        :disabled="planning"
+        title="Répartir automatiquement les tickets restants sur les jours du sprint"
+        @click="autoPlan"
+      >
+        <Loader2 v-if="planning" class="h-4 w-4 animate-spin" />
+        <Sparkles v-else class="h-4 w-4" />
+        Planifier tout ({{ store.unscheduledIssues.length }})
+      </button>
+
+      <div class="-mr-2 max-h-72 flex-1 space-y-2 overflow-y-auto pr-2 scrollbar-slim lg:max-h-none">
         <TicketCard
           v-for="issue in store.unscheduledIssues"
           :key="issue.iid"
@@ -463,16 +579,26 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
         </ul>
       </div>
 
-      <button
-        class="mt-3 inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-        @click="openNew"
-      >
-        <Layers class="h-4 w-4" /> Bloc « autre projet »
-      </button>
+      <div class="mt-3 flex gap-2">
+        <button
+          class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          @click="openNew"
+        >
+          <Layers class="h-4 w-4" /> Bloc « autre projet »
+        </button>
+        <button
+          class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          :disabled="!store.events.some((e) => !e.all_day)"
+          title="Exporter le planning au format iCal (.ics)"
+          @click="exportIcs"
+        >
+          <Download class="h-4 w-4" />
+        </button>
+      </div>
     </aside>
 
     <!-- Calendar -->
-    <div class="flex flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-card">
+    <div class="flex min-h-[28rem] flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-card lg:min-h-0">
       <div class="flex">
         <!-- time gutter -->
         <div class="w-14 shrink-0 border-r border-slate-100">
@@ -531,6 +657,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                   class="group flex cursor-pointer items-center gap-1 truncate rounded-md px-2 py-1 text-[11px] font-medium shadow-sm"
                   :class="eventVisual(ev).soft ? 'border-l-[3px]' : ''"
                   :style="eventVisual(ev).style"
+                  :title="eventLabel(ev)"
                   @dragstart="onEventDragStart(ev, $event)"
                   @dragend="clearDrag"
                   @click="openEvent(ev)"
@@ -594,6 +721,7 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                     class="group absolute cursor-pointer overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-sm transition hover:shadow-md"
                     :class="eventVisual(p.e).soft ? 'border-l-[3px]' : ''"
                     :style="{ ...eventStyle(withResize(p.e), p.total, p.col, day), ...eventVisual(p.e).style }"
+                    :title="eventLabel(p.e)"
                     @dragstart="onEventDragStart(p.e, $event)"
                     @dragend="clearDrag"
                     @click.stop="openEvent(p.e)"
@@ -644,13 +772,13 @@ const isToday = (day) => day.isSame(dayjs(), 'day')
                         <ExternalLink class="h-3 w-3" />
                       </a>
                     </div>
-                    <div class="flex items-center gap-1 pr-9 font-medium leading-tight">
+                    <div class="flex items-start gap-1 pr-9 font-medium leading-tight">
                       <span
                         v-if="eventVisual(p.e).dot"
-                        class="h-1.5 w-1.5 shrink-0 rounded-full"
+                        class="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full"
                         :class="eventVisual(p.e).dot"
                       />
-                      <span class="truncate">{{ eventLabel(p.e) }}</span>
+                      <span class="break-words">{{ eventLabel(p.e) }}</span>
                     </div>
                     <div class="mt-0.5 opacity-70">
                       {{ dayjs(withResize(p.e).starts_at).format('HH:mm') }}–{{ dayjs(withResize(p.e).ends_at).format('HH:mm') }}

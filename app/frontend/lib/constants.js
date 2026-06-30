@@ -6,7 +6,7 @@ export const STATUSES = [
     label: 'Pas commencé',
     short: 'À faire',
     dot: 'bg-slate-400',
-    bar: 'bg-slate-300',
+    bar: 'bg-slate-400',
     ring: 'ring-slate-300',
     badge: 'bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200',
     soft: 'bg-slate-50',

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import {
   LayoutGrid, CalendarDays, Settings, GitMerge, FolderGit2, Milestone,
@@ -13,7 +13,12 @@ import SprintCalendar from './components/SprintCalendar.vue'
 import SettingsView from './components/SettingsView.vue'
 
 const store = useSprintStore()
-const tab = ref('board')
+// Tab state lives in the store (so actions can switch views); expose a proxy
+// so the template keeps using `tab`.
+const tab = computed({
+  get: () => store.activeView,
+  set: (v) => (store.activeView = v),
+})
 
 const TABS = [
   { key: 'board', label: 'Tableau', icon: LayoutGrid },
@@ -24,11 +29,13 @@ const TABS = [
 const projectOptions = computed(() =>
   store.projects
     .map((p) => {
-      // Show the local custom name (e.g. a renamed project) when one exists.
+      // Show the local custom name (e.g. a renamed project) when one exists,
+      // otherwise the short project name — the full namespace already lives in
+      // the sub-line, so we avoid repeating the path on both rows.
       const local = store.localProjectFor(p.id)
       return {
         value: String(p.id),
-        label: local?.name || p.name_with_namespace || p.name,
+        label: local?.name || p.name,
         sub: p.path_with_namespace,
         color: local?.color || null,
         custom: !!local,
@@ -112,8 +119,8 @@ onMounted(async () => {
         </div>
 
         <!-- Selectors -->
-        <div class="flex flex-1 items-center gap-2.5">
-          <div class="w-64">
+        <div class="flex w-full min-w-0 flex-wrap items-center gap-2.5 sm:w-auto sm:flex-1">
+          <div class="w-full min-w-0 flex-1 sm:w-64 sm:flex-none">
             <SelectMenu
               :model-value="store.selectedProjectId"
               :options="projectOptions"
@@ -126,7 +133,7 @@ onMounted(async () => {
               @search="store.loadProjects($event)"
             />
           </div>
-          <div class="w-56">
+          <div class="w-full min-w-0 flex-1 sm:w-56 sm:flex-none">
             <SelectMenu
               :model-value="store.selectedMilestoneId"
               :options="milestoneOptions"

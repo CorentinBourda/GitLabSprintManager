@@ -60,11 +60,23 @@ class GitlabClient
   # Fetch a binary asset (e.g. a user avatar) that lives behind GitLab auth.
   # Returns [body, content_type]. The caller is responsible for validating the
   # host before calling this (SSRF guard).
-  def asset(url)
-    response = Faraday.get(url) { |req| req.headers["PRIVATE-TOKEN"] = config.token }
-    raise Error.new("Asset returned #{response.status}", status: 404) unless response.success?
+  #
+  # GitLab often answers avatar URLs with a 302 redirect (to object storage or a
+  # Gravatar fallback), so we follow a few hops manually rather than treating the
+  # redirect as a failure.
+  def asset(url, max_redirects: 5)
+    current = url
+    max_redirects.times do
+      response = Faraday.get(current) { |req| req.headers["PRIVATE-TOKEN"] = config.token }
+      return [response.body, response.headers["content-type"]] if response.success?
 
-    [response.body, response.headers["content-type"]]
+      location = response.headers["location"]
+      redirect = response.status.between?(300, 399) && location.present?
+      raise Error.new("Asset returned #{response.status}", status: 404) unless redirect
+
+      current = URI.join(current, location).to_s
+    end
+    raise Error.new("Too many redirects fetching asset", status: 502)
   rescue Faraday::Error => e
     raise Error.new("Could not fetch asset: #{e.message}", status: 502)
   end
@@ -115,7 +127,10 @@ class GitlabClient
       when 404 then "Resource not found on GitLab"
       else "GitLab returned #{response.status}"
       end
-    raise Error.new(message, status: response.status == 401 ? 401 : 502)
+    # Surface client errors (401/403/404/4xx) with their real status so the
+    # frontend can tell them apart from a genuine upstream failure (5xx → 502).
+    forwarded = response.status.between?(400, 499) ? response.status : 502
+    raise Error.new(message, status: forwarded)
   end
 
   def parse(body)

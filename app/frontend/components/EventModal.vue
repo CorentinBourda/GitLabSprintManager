@@ -13,8 +13,15 @@ const emit = defineEmits(['close'])
 
 const store = useSprintStore()
 const saving = ref(false)
+const confirmingDelete = ref(false)
 
 const fmt = (d) => dayjs(d).format('YYYY-MM-DDTHH:mm')
+
+// The end must be strictly after the start (unless it's an all-day block, whose
+// hours are derived elsewhere). Blocks saving and shows an inline hint.
+const datesInvalid = computed(
+  () => !form.value.all_day && !dayjs(form.value.ends_at).isAfter(dayjs(form.value.starts_at))
+)
 
 const form = ref({
   title: '',
@@ -33,6 +40,7 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return
+    confirmingDelete.value = false
     const e = props.event || {}
     form.value = {
       title: e.title || '',
@@ -57,6 +65,7 @@ watch(
 )
 
 async function submit() {
+  if (datesInvalid.value) return
   saving.value = true
   try {
     const payload = {
@@ -86,12 +95,20 @@ async function submit() {
 
 async function remove() {
   if (!isEditing.value) return
+  // First click arms the confirmation; second click actually deletes.
+  if (!confirmingDelete.value) {
+    confirmingDelete.value = true
+    return
+  }
   saving.value = true
   try {
     await store.deleteEvent(props.event.id)
     emit('close')
+  } catch (e) {
+    store.setError(e)
   } finally {
     saving.value = false
+    confirmingDelete.value = false
   }
 }
 </script>
@@ -156,10 +173,15 @@ async function remove() {
               <input
                 v-model="form.ends_at"
                 type="datetime-local"
-                class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+                class="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2"
+                :class="datesInvalid ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-100' : 'border-slate-200 focus:border-brand-400 focus:ring-brand-100'"
               />
             </div>
           </div>
+
+          <p v-if="datesInvalid" class="-mt-2 text-xs font-medium text-rose-500">
+            La fin doit être postérieure au début.
+          </p>
 
           <div class="flex items-center justify-between">
             <label class="flex items-center gap-2 text-sm text-slate-600">
@@ -184,8 +206,8 @@ async function remove() {
 
         <div class="mt-6 flex items-center gap-3">
           <button
-            class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
-            :disabled="saving"
+            class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="saving || datesInvalid"
             @click="submit"
           >
             <Loader2 v-if="saving" class="h-4 w-4 animate-spin" />
@@ -193,11 +215,14 @@ async function remove() {
           </button>
           <button
             v-if="isEditing"
-            class="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-600 transition hover:bg-rose-100"
+            class="inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm font-semibold transition"
+            :class="confirmingDelete ? 'border-rose-600 bg-rose-600 text-white hover:bg-rose-700' : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'"
             :disabled="saving"
+            :title="confirmingDelete ? 'Cliquer à nouveau pour confirmer' : 'Supprimer le créneau'"
             @click="remove"
           >
             <Trash2 class="h-4 w-4" />
+            <span v-if="confirmingDelete">Confirmer</span>
           </button>
         </div>
       </div>

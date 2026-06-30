@@ -10,15 +10,15 @@ const total = computed(() => props.distribution.reduce((s, d) => s + d.count, 0)
 
 <template>
   <div>
-    <div class="flex h-3 w-full overflow-hidden rounded-full bg-slate-100">
+    <div class="flex h-3 w-full overflow-hidden rounded-full bg-slate-200 ring-1 ring-inset ring-slate-300/60">
       <template v-if="total">
         <div
           v-for="d in distribution.filter((x) => x.count)"
           :key="d.key"
-          class="h-full transition-all duration-500"
+          class="h-full shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] transition-all duration-500 last:shadow-none"
           :class="d.bar"
           :style="{ width: `${(d.count / total) * 100}%` }"
-          :title="`${d.label}: ${d.count}`"
+          :title="`${d.label}: ${d.count} (${d.pct}%)`"
         />
       </template>
     </div>

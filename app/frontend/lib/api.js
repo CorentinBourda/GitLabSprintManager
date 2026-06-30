@@ -10,15 +10,19 @@ const api = axios.create({
   },
 })
 
-// Normalize backend errors to a readable message.
+// Normalize backend errors to a readable message, keeping the HTTP status so
+// callers can react differently to "not found" vs. a real upstream failure.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error.response?.status || null
     const message =
       error.response?.data?.error ||
       error.message ||
       'Une erreur est survenue'
-    return Promise.reject(new Error(message))
+    const err = new Error(message)
+    err.status = status
+    return Promise.reject(err)
   }
 )
 

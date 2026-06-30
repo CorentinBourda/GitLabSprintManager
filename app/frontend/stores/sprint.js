@@ -7,6 +7,9 @@ const LS_PROJECT = 'gsm.projectId'
 const LS_PROJECT_NAME = 'gsm.projectName'
 const LS_MILESTONE = 'gsm.milestoneId'
 
+// Auto-dismiss timer for the error toast (kept out of reactive state).
+let errorTimer = null
+
 export const useSprintStore = defineStore('sprint', {
   state: () => ({
     settings: { base_url: '', configured: false, token_set: false },
@@ -25,8 +28,15 @@ export const useSprintStore = defineStore('sprint', {
     selectedProjectName: localStorage.getItem(LS_PROJECT_NAME) || '',
     selectedMilestoneId: localStorage.getItem(LS_MILESTONE) || '',
 
+    // Active top-level tab ('board' | 'calendar' | 'settings'). Lives in the
+    // store so actions (e.g. jumping to a favorite) can switch views.
+    activeView: 'board',
+
     loading: { projects: false, milestones: false, issues: false, events: false },
     error: null,
+    // Set when the current sprint's issues fail to load, so the board can show
+    // an explicit error + retry state instead of a silent empty board.
+    issuesError: null,
   }),
 
   getters: {
@@ -155,8 +165,17 @@ export const useSprintStore = defineStore('sprint', {
   },
 
   actions: {
+    // Show a transient error toast. It auto-dismisses after a few seconds so a
+    // stale message never lingers (e.g. after navigating to a sprint that works).
     setError(e) {
       this.error = e?.message || String(e)
+      clearTimeout(errorTimer)
+      if (this.error) errorTimer = setTimeout(() => (this.error = null), 6000)
+    },
+
+    clearError() {
+      clearTimeout(errorTimer)
+      this.error = null
     },
 
     // ---- Settings -----------------------------------------------------------
@@ -182,7 +201,14 @@ export const useSprintStore = defineStore('sprint', {
     async loadProjects(search = '') {
       this.loading.projects = true
       try {
-        this.projects = (await api.get('/gitlab/projects', { params: { search } })).data
+        const { data } = await api.get('/gitlab/projects', { params: { search } })
+        // Merge into the existing pool rather than replacing it: a server-side
+        // search that matches nothing (GitLab can't match custom favorite names
+        // or accent-folded queries) must not wipe the already-loaded projects,
+        // which the client-side fuzzy filter can still match.
+        const byId = new Map(this.projects.map((p) => [String(p.id), p]))
+        data.forEach((p) => byId.set(String(p.id), p))
+        this.projects = [...byId.values()]
       } catch (e) {
         this.setError(e)
       } finally {
@@ -241,11 +267,23 @@ export const useSprintStore = defineStore('sprint', {
           params: { project_id: this.selectedProjectId, milestone_id: milestone.id },
         })
         this.issues = data
+        // A successful load clears any previous failure + stale toast so the
+        // board doesn't keep showing an error from another project/sprint.
+        this.issuesError = null
+        this.clearError()
       } catch (e) {
+        this.issues = []
+        this.issuesError = e?.message || String(e)
         this.setError(e)
       } finally {
         this.loading.issues = false
       }
+    },
+
+    // Reload the currently-selected sprint (used by the board's "Retry" button).
+    async retrySprint() {
+      if (!this.selectedMilestoneId) return
+      await this.selectMilestone(this.selectedMilestoneId)
     },
 
     // ---- Local markers ------------------------------------------------------
@@ -396,6 +434,8 @@ export const useSprintStore = defineStore('sprint', {
       localStorage.setItem(LS_PROJECT, this.selectedProjectId)
       localStorage.setItem(LS_PROJECT_NAME, this.selectedProjectName)
       this.ensureLocalProject(this.selectedProjectId, null)
+      // Surface the sprint right away rather than leaving the user on Settings.
+      if (this.activeView === 'settings') this.activeView = 'board'
       await this.loadMilestones()
       await this.selectMilestone(favorite.milestone_id)
     },

@@ -1,10 +1,16 @@
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { Link2, KeyRound, CheckCircle2, XCircle, Loader2, ShieldCheck, Save } from 'lucide-vue-next'
 import { useSprintStore } from '../stores/sprint'
-import { avatarSrc } from '../lib/gitlab'
+import { avatarSrc, initials } from '../lib/gitlab'
 
 const store = useSprintStore()
+
+// Fall back to initials if the avatar can't be loaded (e.g. proxy hiccup) so
+// the success banner never shows a broken image.
+const avatarFailed = ref(false)
+const connectedUser = computed(() => store.connection.user)
+watch(connectedUser, () => (avatarFailed.value = false))
 
 const form = reactive({
   base_url: store.settings.base_url || 'https://gitlab.com',
@@ -126,7 +132,18 @@ async function test() {
           <span class="font-semibold">{{ store.connection.user?.name }}</span>
           (@{{ store.connection.user?.username }})
         </span>
-        <img v-if="store.connection.user?.avatar_url" :src="avatarSrc(store.connection.user.avatar_url, store.settings.base_url)" class="ml-auto h-7 w-7 rounded-full object-cover" />
+        <img
+          v-if="store.connection.user?.avatar_url && !avatarFailed"
+          :src="avatarSrc(store.connection.user.avatar_url, store.settings.base_url)"
+          class="ml-auto h-7 w-7 rounded-full object-cover"
+          @error="avatarFailed = true"
+        />
+        <span
+          v-else-if="store.connection.user"
+          class="ml-auto flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-semibold text-emerald-700"
+        >
+          {{ initials(store.connection.user.name) }}
+        </span>
       </div>
       <div
         v-else-if="store.connection.error"
